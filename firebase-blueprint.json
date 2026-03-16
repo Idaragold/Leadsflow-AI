@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Application user profile and subscription status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique user ID (matches Auth UID)" },
+        "name": { "type": "string", "description": "User's full name" },
+        "email": { "type": "string", "description": "User's email address" },
+        "plan": { 
+          "type": "string", 
+          "enum": ["Free", "Basic", "Growth", "Premium"],
+          "description": "Subscription plan level"
+        },
+        "paymentStatus": { "type": "boolean", "description": "Whether the user has a verified payment status" }
+      },
+      "required": ["id", "name", "email", "plan", "paymentStatus"]
+    },
+    "Business": {
+      "title": "Business",
+      "description": "Business profile owned by a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique business ID" },
+        "name": { "type": "string", "description": "Business name" },
+        "type": { 
+          "type": "string", 
+          "enum": ["barber", "salon", "laundry", "hotel"],
+          "description": "Category of business"
+        },
+        "location": { "type": "string", "description": "Business location" },
+        "ownerId": { "type": "string", "description": "UID of the user who owns this business" }
+      },
+      "required": ["id", "name", "type", "location", "ownerId"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "Potential customer found by AI",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique lead ID" },
+        "name": { "type": "string", "description": "Lead's name" },
+        "contact": { "type": "string", "description": "Lead's contact info (handle/email)" },
+        "serviceNeeded": { "type": "string", "description": "What service they are looking for" },
+        "businessId": { "type": "string", "description": "ID of the business this lead belongs to" },
+        "status": { 
+          "type": "string", 
+          "enum": ["New", "Contacted", "Converted"],
+          "description": "Current status of the lead"
+        },
+        "outreachMessage": { "type": "string", "description": "AI generated outreach message" }
+      },
+      "required": ["id", "name", "contact", "serviceNeeded", "businessId", "status"]
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "description": "AI generated marketing campaign",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique campaign ID" },
+        "title": { "type": "string", "description": "Campaign title" },
+        "content": { "type": "object", "description": "JSON object containing campaign posts and details" },
+        "businessId": { "type": "string", "description": "ID of the business this campaign belongs to" },
+        "scheduledTime": { "type": "string", "description": "ISO timestamp for when the campaign was created/scheduled" }
+      },
+      "required": ["id", "title", "content", "businessId", "scheduledTime"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/businesses/{businessId}": {
+      "schema": "Business",
+      "description": "Business profiles"
+    },
+    "/leads/{leadId}": {
+      "schema": "Lead",
+      "description": "Leads found for businesses"
+    },
+    "/campaigns/{campaignId}": {
+      "schema": "Campaign",
+      "description": "Marketing campaigns"
+    }
+  }
+}

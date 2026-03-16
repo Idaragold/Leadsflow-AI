@@ -1,0 +1,179 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (matches Auth UID)
+    // Fields:
+    //   - id: string (required) - matches UID
+    //   - name: string (required) - 1-100 chars
+    //   - email: string (required) - valid email format
+    //   - plan: string (required) - enum: ['Free', 'Basic', 'Growth', 'Premium']
+    //   - paymentStatus: bool (required)
+    //
+    // Collection: businesses
+    // Document ID: businessId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required) - 1-100 chars
+    //   - type: string (required) - enum: ['barber', 'salon', 'laundry', 'hotel']
+    //   - location: string (required) - 1-200 chars
+    //   - ownerId: string (required) - matches user UID
+    //
+    // Collection: leads
+    // Document ID: leadId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - contact: string (required)
+    //   - serviceNeeded: string (required)
+    //   - businessId: string (required) - references a business
+    //   - status: string (required) - enum: ['New', 'Contacted', 'Converted']
+    //   - outreachMessage: string (optional)
+    //
+    // Collection: campaigns
+    // Document ID: campaignId
+    // Fields:
+    //   - id: string (required)
+    //   - title: string (required)
+    //   - content: map (required)
+    //   - businessId: string (required) - references a business
+    //   - scheduledTime: string (required) - ISO date string
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.ownerId;
+    }
+    
+    function isLeadOwner() {
+      // Leads are owned by the business owner. We need to check the business.
+      // For simplicity in rules, we assume businessId is present and we can check if the user owns that business.
+      // However, Firestore rules can't easily join without get().
+      // A better pattern is to include ownerId on every document.
+      return isAuthenticated() && request.auth.uid == resource.data.ownerId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "udohgodstime79@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidUser(data) {
+      return hasRequiredFields(['id', 'name', 'email', 'plan', 'paymentStatus']) &&
+             hasOnlyAllowedFields(['id', 'name', 'email', 'plan', 'paymentStatus', 'role']) &&
+             data.id == request.auth.uid &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             isValidEmail(data.email) &&
+             data.plan in ['Free', 'Basic', 'Growth', 'Premium'] &&
+             data.paymentStatus is bool &&
+             (!('role' in data) || data.role in ['user', 'admin']);
+    }
+
+    function isValidBusiness(data) {
+      return hasRequiredFields(['id', 'name', 'type', 'location', 'ownerId']) &&
+             hasOnlyAllowedFields(['id', 'name', 'type', 'location', 'ownerId']) &&
+             data.ownerId == request.auth.uid &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.type in ['barber', 'salon', 'laundry', 'hotel'] &&
+             data.location is string && data.location.size() >= 1 && data.location.size() <= 200;
+    }
+
+    function isValidLead(data) {
+      return hasRequiredFields(['id', 'name', 'contact', 'serviceNeeded', 'businessId', 'status', 'ownerId']) &&
+             hasOnlyAllowedFields(['id', 'name', 'contact', 'serviceNeeded', 'businessId', 'status', 'outreachMessage', 'ownerId']) &&
+             data.ownerId == request.auth.uid &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.contact is string && data.contact.size() >= 1 && data.contact.size() <= 100 &&
+             data.serviceNeeded is string && data.serviceNeeded.size() >= 1 && data.serviceNeeded.size() <= 200 &&
+             data.status in ['New', 'Contacted', 'Converted'] &&
+             (!('outreachMessage' in data) || (data.outreachMessage is string && data.outreachMessage.size() <= 2000));
+    }
+
+    function isValidCampaign(data) {
+      return hasRequiredFields(['id', 'title', 'content', 'businessId', 'scheduledTime', 'ownerId']) &&
+             hasOnlyAllowedFields(['id', 'title', 'content', 'businessId', 'scheduledTime', 'ownerId']) &&
+             data.ownerId == request.auth.uid &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.content is map &&
+             isValidDateString(data.scheduledTime);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
+                      (!('role' in request.resource.data) || request.resource.data.role == 'user');
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && 
+                      request.resource.data.id == resource.data.id &&
+                      request.resource.data.role == resource.data.role) || isAdmin();
+    }
+
+    match /businesses/{businessId} {
+      allow read: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidBusiness(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid && 
+                      isValidBusiness(request.resource.data) &&
+                      request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /leads/{leadId} {
+      allow read: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidLead(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid && 
+                      isValidLead(request.resource.data) &&
+                      request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /campaigns/{campaignId} {
+      allow read: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidCampaign(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid && 
+                      isValidCampaign(request.resource.data) &&
+                      request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}
